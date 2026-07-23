@@ -9,17 +9,17 @@
 #define WHITESPACE "\t\n\v\f\r "
 
 // read line from 'input' stream, remove trailing newline if it exists
-ssize_t fetch_line( FILE *input, char **line, size_t *bytes )
+ssize_t fetch_line( FILE *input, char **line_buf, size_t *bytes )
 {
-    ssize_t read = getline( line, bytes, input );
+    ssize_t read = getline( line_buf, bytes, input );
     if ( read != -1 )
     {
-        char *line_data = *line;
+        char *line = *line_buf;
 
         // remove newline if it exists
-        if ( line_data[read - 1] == '\n' )
+        if ( line[read - 1] == '\n' )
         {
-            line_data[read - 1] = '\0';
+            line[read - 1] = '\0';
             read -= 1;
         }
     }
@@ -35,7 +35,7 @@ size_t split_by_special( char *line, char *commands[32][128], size_t part_count,
 
     while (( delim = strpbrk( start, "&>" ) ))
     {
-        char type = *delim;
+        char op = *delim;
         *delim = '\0';
 
         if ( start != delim )
@@ -43,7 +43,7 @@ size_t split_by_special( char *line, char *commands[32][128], size_t part_count,
             commands[*cmd_count][part_count++] = start;
         }
 
-        if ( type == '>' )
+        if ( op == '>' )
         {
             commands[*cmd_count][part_count++] = ">";
         }
@@ -82,7 +82,8 @@ void parse_line( char *line, char *commands[32][128], size_t *cmd_count )
     *cmd_count += 1;
 }
 
-//
+// check if command has a valid redirect part after it,
+// return the name of the redirect file it does
 int get_redirect( char **args, char **filename )
 {
     for ( size_t i = 0; args[i] != NULL; ++i )
@@ -93,6 +94,8 @@ int get_redirect( char **args, char **filename )
         }
 
         // redirection found, remove everything after '>' from arguments
+        // 'args' is a null-pointer terminated array because execv expects that,
+        // so inserting NULL cuts the next elements off
         args[i] = NULL;
 
         char *file = args[i + 1];
@@ -110,13 +113,13 @@ int get_redirect( char **args, char **filename )
 
         // return redirect file name
         *filename = file;
-        return 0;
+        break;
     }
 
     return 0;
 }
 
-// try to find command from path
+// try to find command from search path
 int find_cmd( char *search_path, char *cmd, char *buf )
 {
     char *start = search_path;
@@ -150,7 +153,7 @@ int find_cmd( char *search_path, char *cmd, char *buf )
     return -1;
 }
 
-// execute command if found
+// execute command, if found
 void execute_cmd( char *search_path, char *cmd, char **args )
 {
     char path[1024];
@@ -191,6 +194,7 @@ void execute_cmd( char *search_path, char *cmd, char **args )
     }
 }
 
+// allocates memory for the search path and initializes to "/bin"
 char *init_search_path( void )
 {
     char *default_path = "/bin";
@@ -235,14 +239,15 @@ int main( int argc, char *argv[] )
         exit( 1 );
     }
 
+    // fixed size command limits to simplify
     char *commands[32][128];
     size_t cmd_count = 0;
 
     char *line = NULL;
-    size_t line_bytes;
-    ssize_t read;
+    size_t bytes = 0;
+    ssize_t read = 0;
 
-    for ( ;; )
+    while ( 1 )
     {
         // zero out old commands
         cmd_count = 0;
@@ -252,8 +257,8 @@ int main( int argc, char *argv[] )
             printf( "wish> " );
         }
 
-        read = fetch_line( input, &line, &line_bytes );
-        if ( read == -1 )
+        read = fetch_line( input, &line, &bytes );
+        if ( read == -1 ) // batch-mode exit, end-of-file
         {
             if ( input != stdin )
             {
@@ -328,7 +333,7 @@ int main( int argc, char *argv[] )
             }
         }
 
-        // wait for all commands
+        // wait for all commands to finish
         while ( wait( NULL ) > 0 )
         {
             continue;

@@ -46,7 +46,7 @@ wish> pwd > out1.txt & ls & echo 'Hey'
 
 Compile with
 ```bash
-gcc wish.c -o wish
+gcc -o wish wish.c -Wall -Werror
 ```
 
 and run
